@@ -15,7 +15,8 @@
         "foregroundImage": "./assets/images/apex_calc_logo.png",
         "backgroundColor": "#E6F4FE"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.sai_rohit.apexcalc"
     },
     "web": {
       "output": "static",

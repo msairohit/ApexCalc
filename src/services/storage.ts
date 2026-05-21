@@ -2,6 +2,34 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { documentDirectory, EncodingType } from 'expo-file-system/legacy';
 import * as SecureStore from 'expo-secure-store';
 import * as Sharing from 'expo-sharing';
+import { extractHidden } from './polyglot';
+/**
+ * Extract and share the hidden file from a polyglot file.
+ */
+export async function shareHiddenFile(filePath: string, hiddenName: string): Promise<void> {
+  const isAvailable = await Sharing.isAvailableAsync();
+  if (!isAvailable) {
+    throw new Error('Sharing is not available on this device');
+  }
+
+  // Read polyglot file as base64
+  const polyglotBase64 = await FileSystem.readAsStringAsync(filePath, { encoding: EncodingType.Base64 });
+  const result = extractHidden(polyglotBase64);
+  if (!result.hasHidden || !result.hiddenData) {
+    throw new Error('No hidden content found in this file.');
+  }
+
+  // Write hidden file to temp location
+  const tempUri = `${FileSystem.cacheDirectory || ''}shared_hidden_${Date.now()}_${hiddenName}`;
+  await FileSystem.writeAsStringAsync(tempUri, result.hiddenData.base64, { encoding: EncodingType.Base64 });
+
+  await Sharing.shareAsync(tempUri, {
+    dialogTitle: `Share ${hiddenName}`,
+  });
+
+  // Optionally, clean up temp file after sharing (not strictly necessary)
+  // await FileSystem.deleteAsync(tempUri, { idempotent: true });
+}
 
 export interface VaultSpace {
   id: string;
@@ -210,12 +238,8 @@ export async function shareFile(filePath: string, fileName: string): Promise<voi
     throw new Error('Sharing is not available on this device');
   }
 
-  // Sharing expects the file to have its correct extension.
-  // The filePath already has the original filename at the end, so we can pass it directly.
   await Sharing.shareAsync(filePath, {
-    mimeType: 'application/octet-stream',
     dialogTitle: `Export ${fileName}`,
-    UTI: 'public.data',
   });
 }
 

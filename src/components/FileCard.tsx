@@ -1,23 +1,23 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Modal, Alert } from 'react-native';
-import { FileMetadata, deleteFileFromSpace, shareFile } from '../services/storage';
-import { useVault } from '../services/vaultState';
-import { GlassCard } from './GlassCard';
-import { 
-  FileText, 
-  FileCode, 
-  Globe, 
-  Image as ImageIcon, 
-  Video as VideoIcon, 
-  File as GenericFile,
+import {
+  Calendar,
   Eye,
   EyeOff,
+  FileCode,
+  FileText,
+  File as GenericFile,
+  Globe,
+  Image as ImageIcon,
+  Layers,
   Share2,
   Trash2,
-  Calendar,
-  Layers,
+  Video as VideoIcon,
   X
 } from 'lucide-react-native';
+import React, { useState } from 'react';
+import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FileMetadata, deleteFileFromSpace, shareFile, shareHiddenFile } from '../services/storage';
+import { useVault } from '../services/vaultState';
+import { GlassCard } from './GlassCard';
 
 interface FileCardProps {
   file: FileMetadata;
@@ -30,6 +30,15 @@ export const FileCard: React.FC<FileCardProps> = ({ file, onReveal, onDeleteSucc
   const { activeTheme, activeSpace } = useVault();
   const [menuVisible, setMenuVisible] = useState(false);
   const isSimple = spaceMode === 'simple';
+
+  const handleShareHidden = async () => {
+    try {
+      await shareHiddenFile(file.filePath, file.hiddenName);
+      setMenuVisible(false);
+    } catch (e: any) {
+      Alert.alert('Share Failed', e.message || 'Could not share hidden content.');
+    }
+  };
 
   // Helper to format file size
   const formatBytes = (bytes: number, decimals = 1) => {
@@ -104,8 +113,8 @@ export const FileCard: React.FC<FileCardProps> = ({ file, onReveal, onDeleteSucc
       `Are you sure you want to delete "${file.fileName}" from the vault?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
+        {
+          text: 'Delete',
           style: 'destructive',
           onPress: async () => {
             await deleteFileFromSpace(activeSpace.id, file.id);
@@ -142,7 +151,7 @@ export const FileCard: React.FC<FileCardProps> = ({ file, onReveal, onDeleteSucc
               <Text numberOfLines={1} style={styles.fileName}>
                 {file.fileName}
               </Text>
-              
+
               {/* Mask row — only shown in advanced (polyglot) mode */}
               {!isSimple && (
                 <View style={styles.metaRow}>
@@ -257,14 +266,30 @@ export const FileCard: React.FC<FileCardProps> = ({ file, onReveal, onDeleteSucc
                       </Text>
                     </View>
                   </Pressable>
+
+                  {/* Share Hidden Content */}
+                  <Pressable
+                    onPress={handleShareHidden}
+                    style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+                  >
+                    <View style={[styles.menuItemIconBg, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                      <Share2 size={20} color="#10B981" />
+                    </View>
+                    <View style={styles.menuItemTextContainer}>
+                      <Text style={styles.menuItemTitle}>Share Hidden Content</Text>
+                      <Text style={[styles.menuItemDesc, { color: activeTheme.textSecondary }]}>
+                        Share or save the extracted hidden file ({file.hiddenName})
+                      </Text>
+                    </View>
+                  </Pressable>
                 </>
               )}
 
               {/* Action: Export / Share */}
-              <Pressable 
-                onPress={handleExport} 
+              <Pressable
+                onPress={handleExport}
                 style={({ pressed }) => [
-                  styles.menuItem, 
+                  styles.menuItem,
                   pressed && styles.menuItemPressed
                 ]}
               >
@@ -284,10 +309,10 @@ export const FileCard: React.FC<FileCardProps> = ({ file, onReveal, onDeleteSucc
               </Pressable>
 
               {/* Action: Delete */}
-              <Pressable 
-                onPress={handleDelete} 
+              <Pressable
+                onPress={handleDelete}
                 style={({ pressed }) => [
-                  styles.menuItem, 
+                  styles.menuItem,
                   pressed && styles.menuItemPressed
                 ]}
               >
