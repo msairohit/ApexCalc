@@ -346,7 +346,7 @@ export const CreatePolyglotModal: React.FC<CreatePolyglotModalProps> = ({ visibl
               <View style={styles.stepContainer}>
                 <Text style={styles.stepTitle}>Step 3: Compile Polyglot File</Text>
                 <Text style={[styles.stepDesc, { color: activeTheme.textSecondary }]}>
-                  Specify the filename for your compiled polyglot file. It must end with the cover file's extension to remain stealthy.
+                  Specify the filename for your compiled polyglot file. It must end with the cover file&apos;s extension to remain stealthy.
                 </Text>
 
                 <GlassCard style={styles.summaryCard}>
@@ -415,7 +415,7 @@ export const CreatePolyglotModal: React.FC<CreatePolyglotModalProps> = ({ visibl
                 <CheckCircle size={80} color={activeTheme.success} style={styles.successIcon} />
                 <Text style={styles.successTitle}>Polyglot Compiled!</Text>
                 <Text style={[styles.successText, { color: activeTheme.textSecondary }]}>
-                  Your file "{outputName}" has been stitched and saved securely in your vault space.
+                  Your file &quot;{outputName}&quot; has been stitched and saved securely in your vault space.
                 </Text>
                 <Text style={[styles.successTextHint, { color: activeTheme.textSecondary }]}>
                   If exported, this file will appear and parse as a standard cover file (like a normal document or code file), keeping your media perfectly safe.

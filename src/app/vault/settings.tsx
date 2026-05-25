@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Alert, Modal, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   ArrowLeft, 
@@ -9,8 +11,9 @@ import {
   Plus, 
   Key, 
   Lock,
-  Layers,
-  Palette
+  Palette,
+  Download,
+  Upload
 } from 'lucide-react-native';
 import { useVault } from '../../services/vaultState';
 import { Themes, ThemeId } from '../../services/theme';
@@ -22,12 +25,22 @@ export default function SettingsScreen() {
     spaces, 
     activeSpace, 
     activeTheme, 
+    calculatorThemeId,
     updateSpacePassword, 
     updateSpaceTheme, 
+    updateCalculatorTheme,
     createNewSpace, 
     deleteSpace,
-    lockVault 
+    lockVault,
+    backupVault,
+    restoreVault
   } = useVault();
+
+  const isSimpleMode = activeSpace?.mode === 'simple';
+
+  // Backup & Restore State
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingText, setProcessingText] = useState('');
 
   // New Space Form State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -129,6 +142,122 @@ export default function SettingsScreen() {
     Alert.alert('Success', 'New secure vault space created successfully!');
   };
 
+  const handleBackup = async () => {
+    setIsProcessing(true);
+    setProcessingText('Creating backup...');
+    try {
+      const success = await backupVault();
+      if (success) {
+        Alert.alert('Backup Created', 'Your backup file has been successfully shared or saved.');
+      } else {
+        Alert.alert('Backup Failed', 'An error occurred while creating the backup.');
+      }
+    } catch (err: any) {
+      Alert.alert('Backup Error', err.message || 'An error occurred.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const pickedFile = result.assets[0];
+
+      setIsProcessing(true);
+      setProcessingText('Reading backup file...');
+      const content = await FileSystem.readAsStringAsync(pickedFile.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      let backupObj: any;
+      try {
+        backupObj = JSON.parse(content);
+      } catch {
+        Alert.alert('Invalid File', 'The selected file is not a valid JSON document.');
+        setIsProcessing(false);
+        return;
+      }
+
+      if (!backupObj.version || !backupObj.spaces || !backupObj.metadata || !Array.isArray(backupObj.files)) {
+        Alert.alert('Invalid Format', 'This file does not appear to be a valid Calculator Vault backup.');
+        setIsProcessing(false);
+        return;
+      }
+
+      setIsProcessing(false);
+
+      Alert.alert(
+        'Restore Option',
+        'How would you like to restore this backup?\n\n' +
+        '• Merge: Add backup vaults/files to your current ones (avoids deleting data).\n' +
+        '• Replace: WIPE all current vaults/files and replace them exactly with the backup.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Merge Data', 
+            onPress: () => executeRestore(backupObj, 'merge') 
+          },
+          { 
+            text: 'Replace Everything', 
+            style: 'destructive',
+            onPress: () => {
+              Alert.alert(
+                'Wipe & Replace',
+                'WARNING: This will permanently delete all your current vaults, passwords, and files. This cannot be undone. Are you sure you want to proceed?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { 
+                    text: 'Yes, Wipe & Replace', 
+                    style: 'destructive',
+                    onPress: () => executeRestore(backupObj, 'replace') 
+                  }
+                ]
+              );
+            }
+          }
+        ]
+      );
+    } catch (err: any) {
+      Alert.alert('Restore Failed', err.message || 'An error occurred during restore.');
+      setIsProcessing(false);
+    }
+  };
+
+  const executeRestore = async (backupObj: any, strategy: 'merge' | 'replace') => {
+    setIsProcessing(true);
+    setProcessingText('Restoring vaults...');
+    try {
+      const result = await restoreVault(backupObj, strategy);
+      setIsProcessing(false);
+      if (result.success) {
+        Alert.alert(
+          'Restore Complete',
+          'Vaults restored successfully! The app will now lock for security.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/')
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Restore Failed', result.message);
+      }
+    } catch (err: any) {
+      setIsProcessing(false);
+      Alert.alert('Restore Error', err.message || 'An error occurred.');
+    }
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: activeTheme.background }]}>
       {/* Header */}
@@ -145,125 +274,200 @@ export default function SettingsScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         
         {/* Spaces Settings Section */}
-        <Text style={[styles.sectionTitle, { color: activeTheme.primary }]}>Vault Spaces</Text>
-        
-        {spaces.map((space) => {
-          const isActive = activeSpace?.id === space.id;
-          const currentSpaceTheme = Themes[space.themeId] || Themes.cyberNeon;
-          
-          return (
-            <GlassCard key={space.id} style={[styles.spaceCard, isActive && { borderColor: activeTheme.primary }]}>
-              {/* Top Row: Info & Delete */}
-              <View style={styles.spaceCardHeader}>
-                <View>
-                  <View style={styles.spaceTitleRow}>
-                    <Text style={styles.spaceName}>{space.name}</Text>
-                    {isActive && (
-                      <View style={[styles.activeBadge, { backgroundColor: `${activeTheme.primary}20` }]}>
-                        <Text style={[styles.activeBadgeText, { color: activeTheme.primary }]}>Active</Text>
+        {!isSimpleMode && (
+          <>
+            <Text style={[styles.sectionTitle, { color: activeTheme.primary }]}>Vault Spaces</Text>
+            
+            {spaces.map((space) => {
+              const isActive = activeSpace?.id === space.id;
+              
+              return (
+                <GlassCard key={space.id} style={[styles.spaceCard, isActive && { borderColor: activeTheme.primary }]}>
+                  {/* Top Row: Info & Delete */}
+                  <View style={styles.spaceCardHeader}>
+                    <View>
+                      <View style={styles.spaceTitleRow}>
+                        <Text style={styles.spaceName}>{space.name}</Text>
+                        {isActive && (
+                          <View style={[styles.activeBadge, { backgroundColor: `${activeTheme.primary}20` }]}>
+                            <Text style={[styles.activeBadgeText, { color: activeTheme.primary }]}>Active</Text>
+                          </View>
+                        )}
                       </View>
-                    )}
-                  </View>
-                  <Text style={[styles.spaceIdText, { color: activeTheme.textSecondary }]}>ID: {space.id}</Text>
-                </View>
-                
-                <Pressable 
-                  onPress={() => handleDeleteSpace(space.id, space.name)}
-                  style={styles.deleteBtn}
-                >
-                  <Trash2 size={18} color="#EF4444" />
-                </Pressable>
-              </View>
-
-              <View style={[styles.divider, { backgroundColor: activeTheme.borderColor }]} />
-
-              {/* Password Setting Row */}
-              <View style={styles.settingRow}>
-                <View style={styles.settingLabelWrapper}>
-                  <Key size={16} color={activeTheme.textSecondary} style={styles.settingIcon} />
-                  <Text style={styles.settingLabel}>Password Formula:</Text>
-                </View>
-                
-                {editingSpaceId === space.id ? (
-                  <View style={styles.editingRow}>
-                    <TextInput
-                      value={editingPassword}
-                      onChangeText={setEditingPassword}
-                      placeholder="e.g. 12+34"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                      style={[styles.editingInput, { borderColor: activeTheme.primary }]}
-                    />
+                      <Text style={[styles.spaceIdText, { color: activeTheme.textSecondary }]}>ID: {space.id}</Text>
+                    </View>
+                    
                     <Pressable 
-                      onPress={() => handleSavePassword(space.id)}
-                      style={[styles.saveBtn, { backgroundColor: activeTheme.primary }]}
+                      onPress={() => handleDeleteSpace(space.id, space.name)}
+                      style={styles.deleteBtn}
                     >
-                      <Check size={16} color="#FFFFFF" />
+                      <Trash2 size={18} color="#EF4444" />
                     </Pressable>
                   </View>
-                ) : (
-                  <Pressable 
-                    onPress={() => handleStartEditPassword(space.id, space.passwordFormula)}
-                    style={styles.clickableValue}
-                  >
-                    <Text style={[styles.valueText, { color: activeTheme.primary }]}>
-                      {space.passwordFormula} =
-                    </Text>
-                    <Text style={[styles.tapToEdit, { color: activeTheme.textSecondary }]}>Tap to edit</Text>
-                  </Pressable>
-                )}
-              </View>
 
-              {/* Theme Settings Row */}
-              <View style={styles.settingColumn}>
-                <View style={styles.settingLabelWrapper}>
-                  <Palette size={16} color={activeTheme.textSecondary} style={styles.settingIcon} />
-                  <Text style={styles.settingLabel}>Space Theme:</Text>
-                </View>
-                
-                <View style={styles.themesRow}>
-                  {Object.keys(Themes).map((tId) => {
-                    const themeObj = Themes[tId];
-                    const isSelected = space.themeId === tId;
-                    return (
-                      <Pressable
-                        key={tId}
-                        onPress={() => handleThemeChange(space.id, tId)}
-                        style={[
-                          styles.themeOptionBtn,
-                          { 
-                            backgroundColor: isSelected ? themeObj.primary : 'rgba(255,255,255,0.05)',
-                            borderColor: themeObj.primary,
-                            borderWidth: isSelected ? 1.5 : 0.5
-                          }
-                        ]}
+                  <View style={[styles.divider, { backgroundColor: activeTheme.borderColor }]} />
+
+                  {/* Password Setting Row */}
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingLabelWrapper}>
+                      <Key size={16} color={activeTheme.textSecondary} style={styles.settingIcon} />
+                      <Text style={styles.settingLabel}>Password Formula:</Text>
+                    </View>
+                    
+                    {editingSpaceId === space.id ? (
+                      <View style={styles.editingRow}>
+                        <TextInput
+                          value={editingPassword}
+                          onChangeText={setEditingPassword}
+                          placeholder="e.g. 12+34"
+                          placeholderTextColor="rgba(255,255,255,0.3)"
+                          style={[styles.editingInput, { borderColor: activeTheme.primary }]}
+                        />
+                        <Pressable 
+                          onPress={() => handleSavePassword(space.id)}
+                          style={[styles.saveBtn, { backgroundColor: activeTheme.primary }]}
+                        >
+                          <Check size={16} color="#FFFFFF" />
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Pressable 
+                        onPress={() => handleStartEditPassword(space.id, space.passwordFormula)}
+                        style={styles.clickableValue}
                       >
-                        <Text style={[
-                          styles.themeOptionText, 
-                          { color: isSelected ? '#FFFFFF' : themeObj.primary }
-                        ]}>
-                          {themeObj.name}
+                        <Text style={[styles.valueText, { color: activeTheme.primary }]}>
+                          {space.passwordFormula} =
                         </Text>
+                        <Text style={[styles.tapToEdit, { color: activeTheme.textSecondary }]}>Tap to edit</Text>
                       </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            </GlassCard>
-          );
-        })}
+                    )}
+                  </View>
 
-        {/* Create Space Button CTA */}
-        <Pressable 
-          onPress={() => setShowAddModal(true)}
-          style={({ pressed }) => [
-            styles.addSpaceBtn,
-            { backgroundColor: activeTheme.primary },
-            pressed && styles.buttonPressed
-          ]}
-        >
-          <Plus size={20} color="#FFFFFF" />
-          <Text style={styles.addSpaceBtnText}>Create New Vault Space</Text>
-        </Pressable>
+                  {/* Theme Settings Row */}
+                  <View style={styles.settingColumn}>
+                    <View style={styles.settingLabelWrapper}>
+                      <Palette size={16} color={activeTheme.textSecondary} style={styles.settingIcon} />
+                      <Text style={styles.settingLabel}>Space Theme:</Text>
+                    </View>
+                    
+                    <View style={styles.themesRow}>
+                      {Object.keys(Themes).map((tId) => {
+                        const themeObj = Themes[tId];
+                        const isSelected = space.themeId === tId;
+                        return (
+                          <Pressable
+                            key={tId}
+                            onPress={() => handleThemeChange(space.id, tId)}
+                            style={[
+                              styles.themeOptionBtn,
+                              { 
+                                backgroundColor: isSelected ? themeObj.primary : 'rgba(255,255,255,0.05)',
+                                borderColor: themeObj.primary,
+                                borderWidth: isSelected ? 1.5 : 0.5
+                              }
+                            ]}
+                          >
+                            <Text style={[
+                              styles.themeOptionText, 
+                              { color: isSelected ? '#FFFFFF' : themeObj.primary }
+                            ]}>
+                              {themeObj.name}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                </GlassCard>
+              );
+            })}
+
+            {/* Create Space Button CTA */}
+            <Pressable 
+              onPress={() => setShowAddModal(true)}
+              style={({ pressed }) => [
+                styles.addSpaceBtn,
+                { backgroundColor: activeTheme.primary },
+                pressed && styles.buttonPressed
+              ]}
+            >
+              <Plus size={20} color="#FFFFFF" />
+              <Text style={styles.addSpaceBtnText}>Create New Vault Space</Text>
+            </Pressable>
+          </>
+        )}
+
+        {/* Calculator Customization */}
+        <Text style={[styles.sectionTitle, { color: activeTheme.primary, marginTop: isSimpleMode ? 0 : 24 }]}>Calculator Theme</Text>
+        <GlassCard style={[styles.backupCard, { marginBottom: 24 }]}>
+          <Text style={[styles.backupTitle, { color: '#FFFFFF' }]}>Calculator Interface Theme</Text>
+          <Text style={[styles.backupDesc, { color: activeTheme.textSecondary }]}>
+            Choose the theme for the main calculator screen interface.
+          </Text>
+          
+          <View style={styles.themesRow}>
+            {Object.keys(Themes).map((tId) => {
+              const themeObj = Themes[tId];
+              const isSelected = calculatorThemeId === tId;
+              return (
+                <Pressable
+                  key={tId}
+                  onPress={() => updateCalculatorTheme(tId)}
+                  style={[
+                    styles.themeOptionBtn,
+                    { 
+                      backgroundColor: isSelected ? themeObj.primary : 'rgba(255,255,255,0.05)',
+                      borderColor: themeObj.primary,
+                      borderWidth: isSelected ? 1.5 : 0.5
+                    }
+                  ]}
+                >
+                  <Text style={[
+                    styles.themeOptionText, 
+                    { color: isSelected ? '#FFFFFF' : themeObj.primary }
+                  ]}>
+                    {themeObj.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </GlassCard>
+
+        {/* Backup & Restore Section */}
+        <Text style={[styles.sectionTitle, { color: activeTheme.primary, marginTop: 24 }]}>Backup & Recovery</Text>
+        <GlassCard style={styles.backupCard}>
+          <Text style={[styles.backupTitle, { color: '#FFFFFF' }]}>Data Portability</Text>
+          <Text style={[styles.backupDesc, { color: activeTheme.textSecondary }]}>
+            Backup your vaults to a secure JSON file, or restore them from a previous backup. This allows you to migrate your data or prevent loss when uninstalling.
+          </Text>
+          
+          <View style={styles.backupBtnRow}>
+            <Pressable 
+              onPress={handleBackup}
+              style={({ pressed }) => [
+                styles.backupActionBtn, 
+                { borderColor: activeTheme.primary, borderWidth: 1.5 },
+                pressed && styles.buttonPressed
+              ]}
+            >
+              <Download size={16} color={activeTheme.primary} style={{ marginRight: 6 }} />
+              <Text style={[styles.backupActionText, { color: activeTheme.primary }]}>Backup Vaults</Text>
+            </Pressable>
+            
+            <Pressable 
+              onPress={handleRestore}
+              style={({ pressed }) => [
+                styles.backupActionBtn, 
+                { borderColor: activeTheme.primary, borderWidth: 1.5 },
+                pressed && styles.buttonPressed
+              ]}
+            >
+              <Upload size={16} color={activeTheme.primary} style={{ marginRight: 6 }} />
+              <Text style={[styles.backupActionText, { color: activeTheme.primary }]}>Restore Backup</Text>
+            </Pressable>
+          </View>
+        </GlassCard>
       </ScrollView>
 
       {/* Modal: Create Space */}
@@ -299,7 +503,7 @@ export default function SettingsScreen() {
               <View style={styles.inputContainer}>
                 <Text style={[styles.inputLabel, { color: activeTheme.textSecondary }]}>Calculator Password Formula</Text>
                 <Text style={[styles.inputHint, { color: activeTheme.textSecondary }]}>
-                  This is the equation you type into the calculator (followed by "=") to unlock this space.
+                  This is the equation you type into the calculator (followed by {"="}) to unlock this space.
                 </Text>
                 <TextInput
                   value={newPassword}
@@ -354,6 +558,16 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Processing Overlay */}
+      {isProcessing && (
+        <View style={styles.processingOverlay}>
+          <GlassCard style={styles.processingCard}>
+            <ActivityIndicator size="large" color={activeTheme.primary} />
+            <Text style={styles.processingText}>{processingText}</Text>
+          </GlassCard>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -627,5 +841,57 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  backupCard: {
+    marginBottom: 16,
+    padding: 16,
+  },
+  backupTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  backupDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  backupBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  backupActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 40,
+    borderRadius: 10,
+    marginHorizontal: 4,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+  },
+  backupActionText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  processingCard: {
+    padding: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '80%',
+  },
+  processingText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 15,
+    textAlign: 'center',
   },
 });

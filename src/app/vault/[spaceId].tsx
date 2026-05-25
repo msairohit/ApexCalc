@@ -202,23 +202,19 @@ export default function VaultSpaceScreen() {
           <Text style={[styles.headerButtonText, { color: activeTheme.primary }]}>Lock</Text>
         </Pressable>
 
-        {/* Simple vault shows no title; advanced shows the space name */}
-        <Text style={styles.vaultTitle}>{isSimple ? '' : activeSpace.name}</Text>
+        {/* Render vault title */}
+        <Text style={styles.vaultTitle}>{activeSpace.name}</Text>
 
-        {/* Settings only available in advanced vault */}
-        {isSimple ? (
-          <View style={{ width: 38 }} />
-        ) : (
-          <Pressable 
-            onPress={handleOpenSettings}
-            style={({ pressed }) => [
-              styles.iconHeaderBtn,
-              pressed && styles.buttonPressed
-            ]}
-          >
-            <SettingsIcon size={22} color="#FFFFFF" />
-          </Pressable>
-        )}
+        {/* Settings button accessible in both simple and advanced vaults */}
+        <Pressable 
+          onPress={handleOpenSettings}
+          style={({ pressed }) => [
+            styles.iconHeaderBtn,
+            pressed && styles.buttonPressed
+          ]}
+        >
+          <SettingsIcon size={22} color="#FFFFFF" />
+        </Pressable>
       </View>
 
       {/* Search Input */}

@@ -1,20 +1,20 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useVault } from '../services/vaultState';
 import { CalculatorButton } from '../components/CalculatorButton';
-import { Themes } from '../services/theme';
+
 
 export default function CalculatorScreen() {
   const router = useRouter();
-  const { unlockSpace } = useVault();
+  const { unlockSpace, activeTheme } = useVault();
   const [formula, setFormula] = useState('');
   const [displayValue, setDisplayValue] = useState('0');
   const [isEvaluated, setIsEvaluated] = useState(false);
 
-  // Default theme (Cyber Neon) for the front page calculator
-  const calcTheme = Themes.cyberNeon;
+  // Dynamic theme persisted in settings
+  const calcTheme = activeTheme;
 
   const handleKeyPress = (char: string) => {
     if (isEvaluated) {

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getVaultSpaces, saveVaultSpaces, getFilesForSpace, deleteFileFromSpace, VaultSpace, FileMetadata } from './storage';
+import { getVaultSpaces, saveVaultSpaces, getFilesForSpace, deleteFileFromSpace, VaultSpace, FileMetadata, createBackupFile, restoreBackup, shareFile, getCalculatorTheme, saveCalculatorTheme } from './storage';
 import { Themes, Theme } from './theme';
 
 interface VaultContextType {
@@ -7,6 +7,7 @@ interface VaultContextType {
   activeSpace: VaultSpace | null;
   activeFiles: FileMetadata[];
   activeTheme: Theme;
+  calculatorThemeId: string;
   isLoading: boolean;
   unlockSpace: (formula: string) => Promise<VaultSpace | null>;
   loadActiveSpace: (spaceId: string) => Promise<void>;
@@ -14,8 +15,11 @@ interface VaultContextType {
   createNewSpace: (name: string, passwordFormula: string, themeId: string) => Promise<VaultSpace>;
   updateSpacePassword: (spaceId: string, newPassword: string) => Promise<boolean>;
   updateSpaceTheme: (spaceId: string, themeId: string) => Promise<void>;
+  updateCalculatorTheme: (themeId: string) => Promise<void>;
   deleteSpace: (spaceId: string) => Promise<void>;
   lockVault: () => void;
+  backupVault: () => Promise<boolean>;
+  restoreVault: (backupObj: any, strategy: 'merge' | 'replace') => Promise<{ success: boolean; message: string }>;
 }
 
 const VaultContext = createContext<VaultContextType | undefined>(undefined);
@@ -25,13 +29,16 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [activeSpace, setActiveSpace] = useState<VaultSpace | null>(null);
   const [activeFiles, setActiveFiles] = useState<FileMetadata[]>([]);
   const [activeTheme, setActiveTheme] = useState<Theme>(Themes.cyberNeon);
+  const [calculatorThemeId, setCalculatorThemeId] = useState<string>('cyberNeon');
   const [isLoading, setIsLoading] = useState(true);
 
   // Initialize and load spaces
   useEffect(() => {
     async function init() {
       const loadedSpaces = await getVaultSpaces();
+      const loadedTheme = await getCalculatorTheme();
       setSpaces(loadedSpaces);
+      setCalculatorThemeId(loadedTheme);
       setIsLoading(false);
     }
     init();
@@ -43,9 +50,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const theme = Themes[activeSpace.themeId] || Themes.cyberNeon;
       setActiveTheme(theme);
     } else {
-      setActiveTheme(Themes.cyberNeon); // Default back to Cyber Neon for calculator
+      const theme = Themes[calculatorThemeId] || Themes.cyberNeon;
+      setActiveTheme(theme);
     }
-  }, [activeSpace]);
+  }, [activeSpace, calculatorThemeId]);
 
   const unlockSpace = async (formula: string): Promise<VaultSpace | null> => {
     // Normalize formula: trim whitespace
@@ -128,6 +136,11 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await saveVaultSpaces(updated);
   };
 
+  const updateCalculatorTheme = async (themeId: string) => {
+    setCalculatorThemeId(themeId);
+    await saveCalculatorTheme(themeId);
+  };
+
   const deleteSpace = async (spaceId: string) => {
     // Prevent deleting the last space
     if (spaces.length <= 1) {
@@ -154,6 +167,34 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setActiveFiles([]);
   };
 
+  const backupVault = async (): Promise<boolean> => {
+    try {
+      const backupPath = await createBackupFile();
+      const fileName = `polyglot_backup_${Date.now()}.json`;
+      await shareFile(backupPath, fileName);
+      return true;
+    } catch (error) {
+      console.error('Backup error:', error);
+      return false;
+    }
+  };
+
+  const restoreVault = async (
+    backupObj: any,
+    strategy: 'merge' | 'replace'
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      await restoreBackup(backupObj, strategy);
+      const loadedSpaces = await getVaultSpaces();
+      setSpaces(loadedSpaces);
+      lockVault();
+      return { success: true, message: 'Vault restored successfully!' };
+    } catch (error: any) {
+      console.error('Restore error:', error);
+      return { success: false, message: error.message || 'Failed to restore vault.' };
+    }
+  };
+
   return (
     <VaultContext.Provider
       value={{
@@ -161,6 +202,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         activeSpace,
         activeFiles,
         activeTheme,
+        calculatorThemeId,
         isLoading,
         unlockSpace,
         loadActiveSpace,
@@ -168,8 +210,11 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         createNewSpace,
         updateSpacePassword,
         updateSpaceTheme,
+        updateCalculatorTheme,
         deleteSpace,
         lockVault,
+        backupVault,
+        restoreVault,
       }}
     >
       {children}
